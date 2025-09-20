@@ -1,6 +1,5 @@
---// ESP GUI with M Keybind Hide/Show
---// Hides GUI + ESP when you press M
---// Rounded, smooth switch, soft text
+--// ESP GUI with M Keybind Toggle
+--// Rounded GUI, smooth switch, soft text
 --// Made for Delta Executor
 
 local Players = game:GetService("Players")
