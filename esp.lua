@@ -1,4 +1,4 @@
--- ESP GUI with Hitbox Expansion, Opacity & Color Picker
+-- ESP GUI with Hitbox Expansion, Opacity & Color Picker (fixed version)
 -- Toggle key = M
 
 -- Services
@@ -6,6 +6,7 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 -- Store ESP objects
 local espObjects = {}
@@ -20,8 +21,8 @@ local ScreenGui = Instance.new("ScreenGui", CoreGui)
 ScreenGui.Name = "ESP_GUI"
 
 local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 230, 0, 240)
-Frame.Position = UDim2.new(0, 20, 0.5, -120)
+Frame.Size = UDim2.new(0, 230, 0, 260)
+Frame.Position = UDim2.new(0, 20, 0.5, -130)
 Frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 Frame.Active = true
 Frame.Draggable = true
@@ -53,7 +54,7 @@ local boxLabel = Instance.new("TextLabel", Frame)
 boxLabel.Size = UDim2.new(0.4, 0, 0, 20)
 boxLabel.Position = UDim2.new(0.05, 0, 0.45, 0)
 boxLabel.BackgroundTransparency = 1
-boxLabel.Text = "Hitbox Size:"
+boxLabel.Text = "Hitbox Size (1-90):"
 boxLabel.TextColor3 = Color3.fromRGB(230, 230, 230)
 boxLabel.TextStrokeTransparency = 0.7
 boxLabel.TextScaled = true
@@ -74,7 +75,7 @@ local opacityLabel = Instance.new("TextLabel", Frame)
 opacityLabel.Size = UDim2.new(0.4, 0, 0, 20)
 opacityLabel.Position = UDim2.new(0.05, 0, 0.63, 0)
 opacityLabel.BackgroundTransparency = 1
-opacityLabel.Text = "Hitbox Opacity:"
+opacityLabel.Text = "Hitbox Opacity (0-1):"
 opacityLabel.TextColor3 = Color3.fromRGB(230, 230, 230)
 opacityLabel.TextStrokeTransparency = 0.7
 opacityLabel.TextScaled = true
@@ -121,9 +122,9 @@ local options = {
 local optionKeys = {"Red", "Blue", "Black", "Yellow", "Green"}
 local currentIndex = 1
 
--- Update All ESP
-function updateAllESP()
-    for _, objects in pairs(espObjects) do
+-- Function to update all existing ESP boxes
+local function updateAllESP()
+    for player, objects in pairs(espObjects) do
         for _, obj in pairs(objects) do
             if obj:IsA("BoxHandleAdornment") then
                 obj.Size = Vector3.new(hitboxSize, hitboxSize * 1.5, hitboxSize / 2)
@@ -134,7 +135,7 @@ function updateAllESP()
     end
 end
 
--- Inputs
+-- Inputs handlers
 hitboxInput.FocusLost:Connect(function()
     local val = tonumber(hitboxInput.Text)
     if val then
@@ -167,14 +168,17 @@ end)
 -- ESP Core
 local espEnabled = false
 
-function createESP(player)
+local function createESP(player)
     if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        -- create objects table
         local objects = {}
 
-        -- Billboard (Name + Health)
-        local billboard = Instance.new("BillboardGui", player.Character.Head)
+        -- Billboard for name + health
+        local head = player.Character:FindFirstChild("Head")
+        local billboard = Instance.new("BillboardGui", player.Character)
+        billboard.Adornee = head or player.Character:FindFirstChild("HumanoidRootPart")
         billboard.Size = UDim2.new(0, 200, 0, 50)
-        billboard.Adornee = player.Character.Head
+        billboard.StudsOffset = Vector3.new(0, 3.5, 0)
         billboard.AlwaysOnTop = true
 
         local nameLabel = Instance.new("TextLabel", billboard)
@@ -216,7 +220,7 @@ function createESP(player)
     end
 end
 
-function removeESP(player)
+local function removeESP(player)
     if espObjects[player] then
         for _, obj in pairs(espObjects[player]) do
             obj:Destroy()
@@ -229,13 +233,13 @@ end
 espToggle.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
     espToggle.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
-
+    
     if espEnabled then
         for _, player in pairs(Players:GetPlayers()) do
             createESP(player)
         end
     else
-        for _, objects in pairs(espObjects) do
+        for player, objects in pairs(espObjects) do
             for _, obj in pairs(objects) do
                 obj:Destroy()
             end
@@ -245,17 +249,17 @@ espToggle.MouseButton1Click:Connect(function()
 end)
 
 -- Toggle with M key
-game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
+UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.KeyCode == Enum.KeyCode.M then
         espToggle:Activate()
     end
 end)
 
--- Player Added/Removed
+-- Player Added / CharacterAdded
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         if espEnabled then
-            task.wait(1)
+            task.wait(0.8)
             createESP(player)
         end
     end)
