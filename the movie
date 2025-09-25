@@ -1,0 +1,168 @@
+-- Delta FPS Booster with Rayfield UI
+-- Turns textures/effects low quality, smooths materials, removes particles, etc.
+-- Skips player characters if toggle enabled.
+
+-- === CONFIG ===
+local rayfield_urls = {
+    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"
+}
+
+local excludePlayersByDefault = true
+
+-- === SERVICES ===
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Lighting = game:GetService("Lighting")
+
+-- === HELPERS ===
+local function isDescendantOfAnyCharacter(obj)
+    for _, pl in pairs(Players:GetPlayers()) do
+        local c = pl.Character
+        if c and obj:IsDescendantOf(c) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Store originals
+local originalStore = {}
+local function storeOriginal(inst, prop, val)
+    if not originalStore[inst] then originalStore[inst] = {} end
+    originalStore[inst][prop] = val
+end
+
+local function safeSet(inst, prop, val)
+    pcall(function() inst[prop] = val end)
+end
+
+-- === CLEANER ===
+local function optimizeInstance(inst, skipPlayers)
+    if skipPlayers and isDescendantOfAnyCharacter(inst) then return end
+
+    -- Parts / Meshes
+    if inst:IsA("Part") or inst:IsA("UnionOperation") or inst:IsA("MeshPart") then
+        storeOriginal(inst, "Material", inst.Material)
+        inst.Material = Enum.Material.SmoothPlastic
+        storeOriginal(inst, "Reflectance", inst.Reflectance)
+        inst.Reflectance = 0
+        storeOriginal(inst, "CastShadow", inst.CastShadow)
+        inst.CastShadow = false
+        if inst:IsA("MeshPart") and inst.TextureID ~= "" then
+            storeOriginal(inst, "TextureID", inst.TextureID)
+            inst.TextureID = ""
+        end
+
+    elseif inst:IsA("Decal") or inst:IsA("Texture") then
+        storeOriginal(inst, "Texture", inst.Texture)
+        inst.Texture = ""
+
+    elseif inst:IsA("SpecialMesh") then
+        storeOriginal(inst, "TextureId", inst.TextureId)
+        inst.TextureId = ""
+
+    elseif inst:IsA("SurfaceAppearance") then
+        for _, prop in ipairs({"ColorMap","NormalMap","MetalnessMap","RoughnessMap"}) do
+            if inst[prop] ~= "" then
+                storeOriginal(inst, prop, inst[prop])
+                inst[prop] = ""
+            end
+        end
+
+    -- Kill FPS-hog effects
+    elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") or inst:IsA("Beam") then
+        storeOriginal(inst, "Enabled", inst.Enabled)
+        inst.Enabled = false
+    end
+end
+
+-- === APPLY ===
+local applied = false
+local function applyOptimizations(skipPlayers)
+    applied = true
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        optimizeInstance(obj, skipPlayers)
+    end
+
+    -- Lighting optimizations
+    storeOriginal(Lighting, "GlobalShadows", Lighting.GlobalShadows)
+    Lighting.GlobalShadows = false
+    storeOriginal(Lighting, "Technology", Lighting.Technology)
+    Lighting.Technology = Enum.Technology.Compatibility
+
+    -- Terrain
+    local terr = workspace:FindFirstChildOfClass("Terrain")
+    if terr then
+        storeOriginal(terr, "Decoration", terr.Decoration)
+        terr.Decoration = false
+    end
+end
+
+-- === RESTORE ===
+local function restoreOriginals()
+    for inst, props in pairs(originalStore) do
+        if inst and inst.Parent then
+            for prop, val in pairs(props) do
+                safeSet(inst, prop, val)
+            end
+        end
+    end
+    originalStore = {}
+    applied = false
+end
+
+-- === RAYFIELD UI ===
+local Rayfield = nil
+for _, url in ipairs(rayfield_urls) do
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet(url, true))()
+    end)
+    if ok and result then
+        Rayfield = result
+        break
+    end
+end
+
+if not Rayfield then
+    warn("Rayfield not found. Add a working raw URL.")
+else
+    local Window = Rayfield:CreateWindow({
+        Name = "FPS Booster Hub",
+        LoadingTitle = "FPS Booster",
+        LoadingSubtitle = "Delta Optimizer",
+    })
+
+    local tab = Window:CreateTab("Main")
+
+    local skipPlayers = excludePlayersByDefault
+
+    tab:CreateToggle({
+        Name = "Exclude Players",
+        CurrentValue = skipPlayers,
+        Callback = function(v) skipPlayers = v end
+    })
+
+    tab:CreateButton({
+        Name = "Enable Optimizations",
+        Callback = function()
+            applyOptimizations(skipPlayers)
+            Rayfield:Notify({
+                Title = "FPS Boost",
+                Content = "Optimizations applied!",
+                Duration = 4
+            })
+        end
+    })
+
+    tab:CreateButton({
+        Name = "Restore",
+        Callback = function()
+            restoreOriginals()
+            Rayfield:Notify({
+                Title = "Restored",
+                Content = "Original settings restored.",
+                Duration = 4
+            })
+        end
+    })
+end
