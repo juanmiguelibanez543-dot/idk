@@ -1,168 +1,200 @@
--- Delta FPS Booster with Rayfield UI
--- Turns textures/effects low quality, smooths materials, removes particles, etc.
--- Skips player characters if toggle enabled.
+-- 🔥 Camlock Hub + FPS Boost + Reset FPS
+-- Rayfield UI
 
--- === CONFIG ===
-local rayfield_urls = {
-    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"
-}
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-local excludePlayersByDefault = true
+local Window = Rayfield:CreateWindow({
+   Name = "🔥 Camlock Hub",
+   LoadingTitle = "Delta - Flame Hood",
+   LoadingSubtitle = "Smooth Camlock + FPS Boost",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false,
+})
 
--- === SERVICES ===
+-- // Services
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
+local CAMERA = workspace.CurrentCamera
+local LOCAL = Players.LocalPlayer
 
--- === HELPERS ===
-local function isDescendantOfAnyCharacter(obj)
-    for _, pl in pairs(Players:GetPlayers()) do
-        local c = pl.Character
-        if c and obj:IsDescendantOf(c) then
-            return true
-        end
-    end
-    return false
+-- // Vars
+local CamlockEnabled = false
+local Target = nil
+local Smoothness = 0.22
+local HeadOffset = Vector3.new(0,1.4,0)
+local FOV_RADIUS = 150
+local ButtonGui = nil
+
+-- // FOV Circle
+local circle = Drawing.new("Circle")
+circle.Visible = false
+circle.Transparency = 0.5
+circle.Color = Color3.fromRGB(255,255,255)
+circle.Thickness = 1.5
+circle.NumSides = 60
+circle.Radius = FOV_RADIUS
+circle.Filled = false
+
+-- // Target Functions
+local function IsValidTarget(player)
+    if not player or player == LOCAL then return false end
+    if not player.Character then return false end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    local hum = player.Character:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum or hum.Health <= 0 then return false end
+    local screenPos, onScreen = CAMERA:WorldToViewportPoint(hrp.Position)
+    if not onScreen then return false end
+    local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(CAMERA.ViewportSize.X/2, CAMERA.ViewportSize.Y/2)).Magnitude
+    return dist2D <= FOV_RADIUS
 end
 
--- Store originals
-local originalStore = {}
-local function storeOriginal(inst, prop, val)
-    if not originalStore[inst] then originalStore[inst] = {} end
-    originalStore[inst][prop] = val
-end
-
-local function safeSet(inst, prop, val)
-    pcall(function() inst[prop] = val end)
-end
-
--- === CLEANER ===
-local function optimizeInstance(inst, skipPlayers)
-    if skipPlayers and isDescendantOfAnyCharacter(inst) then return end
-
-    -- Parts / Meshes
-    if inst:IsA("Part") or inst:IsA("UnionOperation") or inst:IsA("MeshPart") then
-        storeOriginal(inst, "Material", inst.Material)
-        inst.Material = Enum.Material.SmoothPlastic
-        storeOriginal(inst, "Reflectance", inst.Reflectance)
-        inst.Reflectance = 0
-        storeOriginal(inst, "CastShadow", inst.CastShadow)
-        inst.CastShadow = false
-        if inst:IsA("MeshPart") and inst.TextureID ~= "" then
-            storeOriginal(inst, "TextureID", inst.TextureID)
-            inst.TextureID = ""
-        end
-
-    elseif inst:IsA("Decal") or inst:IsA("Texture") then
-        storeOriginal(inst, "Texture", inst.Texture)
-        inst.Texture = ""
-
-    elseif inst:IsA("SpecialMesh") then
-        storeOriginal(inst, "TextureId", inst.TextureId)
-        inst.TextureId = ""
-
-    elseif inst:IsA("SurfaceAppearance") then
-        for _, prop in ipairs({"ColorMap","NormalMap","MetalnessMap","RoughnessMap"}) do
-            if inst[prop] ~= "" then
-                storeOriginal(inst, prop, inst[prop])
-                inst[prop] = ""
-            end
-        end
-
-    -- Kill FPS-hog effects
-    elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") or inst:IsA("Beam") then
-        storeOriginal(inst, "Enabled", inst.Enabled)
-        inst.Enabled = false
-    end
-end
-
--- === APPLY ===
-local applied = false
-local function applyOptimizations(skipPlayers)
-    applied = true
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        optimizeInstance(obj, skipPlayers)
-    end
-
-    -- Lighting optimizations
-    storeOriginal(Lighting, "GlobalShadows", Lighting.GlobalShadows)
-    Lighting.GlobalShadows = false
-    storeOriginal(Lighting, "Technology", Lighting.Technology)
-    Lighting.Technology = Enum.Technology.Compatibility
-
-    -- Terrain
-    local terr = workspace:FindFirstChildOfClass("Terrain")
-    if terr then
-        storeOriginal(terr, "Decoration", terr.Decoration)
-        terr.Decoration = false
-    end
-end
-
--- === RESTORE ===
-local function restoreOriginals()
-    for inst, props in pairs(originalStore) do
-        if inst and inst.Parent then
-            for prop, val in pairs(props) do
-                safeSet(inst, prop, val)
+local function GetNearestTarget()
+    local best, bestDist = nil, math.huge
+    for _, p in pairs(Players:GetPlayers()) do
+        if IsValidTarget(p) then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local screenPos = CAMERA:WorldToViewportPoint(hrp.Position)
+                local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(CAMERA.ViewportSize.X/2, CAMERA.ViewportSize.Y/2)).Magnitude
+                if dist2D < bestDist then
+                    best, bestDist = p, dist2D
+                end
             end
         end
     end
-    originalStore = {}
-    applied = false
+    return best
 end
 
--- === RAYFIELD UI ===
-local Rayfield = nil
-for _, url in ipairs(rayfield_urls) do
-    local ok, result = pcall(function()
-        return loadstring(game:HttpGet(url, true))()
-    end)
-    if ok and result then
-        Rayfield = result
-        break
+-- // Camlock Toggle
+local function ToggleCamlock()
+    CamlockEnabled = not CamlockEnabled
+    if CamlockEnabled then
+        circle.Visible = true
+        if ButtonGui then ButtonGui.Text = "Camlock: ON" end
+    else
+        circle.Visible = false
+        Target = nil
+        if ButtonGui then ButtonGui.Text = "Camlock: OFF" end
     end
 end
 
-if not Rayfield then
-    warn("Rayfield not found. Add a working raw URL.")
-else
-    local Window = Rayfield:CreateWindow({
-        Name = "FPS Booster Hub",
-        LoadingTitle = "FPS Booster",
-        LoadingSubtitle = "Delta Optimizer",
-    })
+-- // Rayfield Tabs
+local Tab = Window:CreateTab("⚙️ Camlock")
 
-    local tab = Window:CreateTab("Main")
-
-    local skipPlayers = excludePlayersByDefault
-
-    tab:CreateToggle({
-        Name = "Exclude Players",
-        CurrentValue = skipPlayers,
-        Callback = function(v) skipPlayers = v end
-    })
-
-    tab:CreateButton({
-        Name = "Enable Optimizations",
-        Callback = function()
-            applyOptimizations(skipPlayers)
-            Rayfield:Notify({
-                Title = "FPS Boost",
-                Content = "Optimizations applied!",
-                Duration = 4
-            })
+-- Spawn Button
+Tab:CreateButton({
+   Name = "Spawn Camlock",
+   Callback = function()
+        if ButtonGui then
+            ButtonGui:Destroy()
+            ButtonGui = nil
         end
-    })
 
-    tab:CreateButton({
-        Name = "Restore",
-        Callback = function()
-            restoreOriginals()
-            Rayfield:Notify({
-                Title = "Restored",
-                Content = "Original settings restored.",
-                Duration = 4
-            })
+        -- Create floating button
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.ResetOnSpawn = false
+        screenGui.Parent = CoreGui
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 140, 0, 36)
+        btn.Position = UDim2.new(0.5, -70, 0.9, -40)
+        btn.AnchorPoint = Vector2.new(0.5, 0.5)
+        btn.BackgroundTransparency = 0.15
+        btn.BackgroundColor3 = Color3.fromRGB(28,28,28)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 16
+        btn.Text = "Camlock: OFF"
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = screenGui
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+        ButtonGui = btn
+
+        -- Toggle on click
+        btn.MouseButton1Click:Connect(function()
+            ToggleCamlock()
+        end)
+   end,
+})
+
+-- Extra Execute Button
+Tab:CreateButton({
+   Name = "Execute Carl Script",
+   Callback = function()
+       loadstring(game:HttpGet("https://raw.githubusercontent.com/carl1212s/skibd/main/carl-vascal-on-top"))()
+   end,
+})
+
+-- FPS Boost Button
+Tab:CreateButton({
+   Name = "⚡ FPS Boost",
+   Callback = function()
+       for _, v in pairs(Lighting:GetChildren()) do
+           if v:IsA("PostEffect") then v.Enabled = false end
+       end
+       Lighting.GlobalShadows = false
+       Lighting.FogEnd = 1e10
+       Lighting.Brightness = 1
+       workspace.StreamingEnabled = true
+       settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+       for _, v in pairs(workspace:GetDescendants()) do
+           if v:IsA("Texture") or v:IsA("Decal") then
+               v:Destroy()
+           elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+               v.Enabled = false
+           elseif v:IsA("BasePart") then
+               v.CastShadow = false
+           end
+       end
+       game:GetService("StarterGui"):SetCore("SendNotification", {
+           Title = "FPS Boost",
+           Text = "✅ Boost Applied!",
+           Duration = 3
+       })
+   end,
+})
+
+-- Reset FPS Button
+Tab:CreateButton({
+   Name = "♻️ Reset FPS",
+   Callback = function()
+       -- Reset lighting
+       for _, v in pairs(Lighting:GetChildren()) do
+           if v:IsA("PostEffect") then v.Enabled = true end
+       end
+       Lighting.GlobalShadows = true
+       Lighting.FogEnd = 1000
+       Lighting.Brightness = 2
+
+       -- Reset quality
+       settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+
+       game:GetService("StarterGui"):SetCore("SendNotification", {
+           Title = "FPS Reset",
+           Text = "🔄 Graphics Restored",
+           Duration = 3
+       })
+   end,
+})
+
+-- // Main Camlock Loop
+RunService.RenderStepped:Connect(function()
+    circle.Position = Vector2.new(CAMERA.ViewportSize.X/2, CAMERA.ViewportSize.Y/2)
+    if CamlockEnabled then
+        if not Target or not IsValidTarget(Target) then
+            Target = GetNearestTarget()
         end
-    })
-end
+        if Target and Target.Character then
+            local hrp = Target.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local myPos = CAMERA.CFrame.Position
+                local desiredDir = (hrp.Position + HeadOffset - myPos).Unit
+                local newLook = CAMERA.CFrame.LookVector:Lerp(desiredDir, math.clamp(1 - Smoothness, 0.01, 1))
+                CAMERA.CFrame = CFrame.new(myPos, myPos + newLook)
+            end
+        end
+    end
+end)
